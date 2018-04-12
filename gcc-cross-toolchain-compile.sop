@@ -1,0 +1,116 @@
+references:
+http://blog.chinaunix.net/uid-24943863-id-3997047.html
+
+关于linaro参见其官网www.linaro.org
+gcc-linara源码可以从这个网址下载 http://launchpad.net/gcc-linaro/+milestone/4.8-2013.10
+gcc的编译依赖于几个库,GMP,MPFR,MPC，首先需要编译他们，从ftp://gcc.gnu.org/pub/gcc/infrastructure/ 下载这几个库的源代码。
+1. 编译GMP  ftp://gcc.gnu.org/pub/gcc/infrastructure/gmp-4.3.2.tar.bz2
+解压后使用标准的GNU源码编译方法
+./configure  --prefix=/home/tools/gmp
+make
+make install
+--host指定的是编译所用主机类型
+2. 编译MPFR  ftp://gcc.gnu.org/pub/gcc/infrastructure/mpfr-2.4.2.tar.bz2
+./configure  --prefix=/home/tools/mpfr --with-gmp=/home/tools/gmp
+make && make install
+3.编译MPC  ftp://gcc.gnu.org/pub/gcc/infrastructure/mpc-0.8.1.tar.gz
+./configure --prefix=/home/tools/mpc --with-gmp=/home/tools/gmp --with-mpfr=/home/tools/mpfr
+make && make install
+4.编译isl 下载地址 http://isl.gforge.inria.fr/isl-0.12.tar.gz
+./configure --prefix=/home/tools/isl --with-gmp-prefix=/home/tools/gmp
+make && make install
+5.编译cloog  下载地址 http://www.bastoul.net/cloog/pages/download/count.php3?url=./cloog-0.18.1.tar.gz
+./configure  --prefix=/home/tools/cloog --with-gmp-prefix=/home/tools/gmp
+note: 这里确实为--with-gmp-prefix 意为使用 --with-gmp=system 有些费解(来自configure脚本)
+make && make install
+6.编译libelf   下载地址 http://www.mr511.de/software/libelf-0.8.9.tar.gz
+ ./configure --prefix=/home/tools/libelf
+make && make install
+7.编译binutils http://releases.linaro.org/13.10/components/toolchain/binutils-linaro
+./configure --prefix=/usr/local/linaro-gcc --with-sysroot=/usr/local/arm-linux/arm-linux-gnueabihf/libc --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=arm-linux-gnueabihf --with-gmp=/home/tools/gmp --with-isl=/home/tools/isl  --with-mpfr=/home/tools/mpfr --with-mpc=/home/tools/mpc
+make 
+sudo make install
+加上--with-sysroot是很重要的，否则编译gcc的时候会出现“ld:this linker was not configured to use sysroots”的错误。
+note:这里的参数不知为何意, 似乎并没有产生相应目录及文件. 这里尝试cp arm-linux-gnueabihf-gcc4.9.3中的sys-root目录
+
+8. 安装内核头文件 (not do)
+解压内核并cd到源码目录，执行下面的命令构建sanitized 版本内核头文件。
+make ARCH=arm headers_check
+ sudo make ARCH=arm INSTALL_HDR_PATH=/usr/local/arm-linux/arm-linux-gnueabihf/libc/usr headers_install
+9. 编译c库头文件  (not do) eglibc  http://releases.linaro.org/13.10/components/toolchain/eglibc-linaro/eglibc-linaro-2.18-2013.10.tar.bz2
+mkdir build
+../configure  CC=gcc --prefix=/usr/local/arm-linux/arm-linux-gnueabihf/libc/usr --build=x86_64-linux-gnu --host=arm-linux-gnueabihf --with-header=/usr/local/arm-linux/arm-linux-gnueabihf/libc/usr/include 
+sudo make install-headers
+注意这里设置的--host是目标板，与其他地方的不一样。
+内核头文件和C库头文件放在sysroot下，消除缺少头文件的问题“The directory that should contain system headers does not exist” 。
+10.编译用于编译glibc的gcc
+解压gcc-linara，cd到源码目录
+mkdir build
+cd build
+../gcc-linaro-4.8-2013.10/configure --prefix=/usr/local/arm-linux --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=arm-linux-gnueabi --with-gmp=/home/tools/gmp 
+ --with-mpfr=/home/tools/mpfr --with-mpc=/home/tools/mpc --with-isl=/home/tools/isl --with-cloog=/home/tools/cloog 
+--with-libelf=/home/tools/libelf --enable-languages=c,c++,fortran --with-arch=armv7-a --with-tune=cortex-a9 --with-fpu=vfpv3-d16 --with-float=hard 
+--enable-__cxa_atexit --enable-libmudflap --enable-libgomp --enable-libssp --enable-threads=posix --disable-libstdcxx-pch --enable-linker-build-id --enable-gold  --enable-c99 
+--enable-long-long --with-mode=thumb --with-sysroot=/usr/local/linaro-gcc/arm-linux-gnueabihf/libc --with-local-prefix=/usr/local/linaro-gcc/arm-linux-gnueabihf/libc --disable-multilib --disable-werror --disable-nls
+make -j4
+
+note: 这里一定要disable multilab , 否则强制使用 -mfloat-abi=soft , 当出现找到链接库时只需要
+export LD_LIBRARY_PATH=/home/tools/isl/lib:$LD_LIBRARY_PATH 等 当使用高于gcc-5.x编译4.x cross toolchain 需要打补丁如下：gcc_src-use_gcc6_to_build.patch
+
+到这里配置出错了
+checking for version 0.10 of ISL... no
+checking for version 0.11 of ISL... no
+checking for version 0.12 of ISL... no
+configure: error: Unable to find a usable ISL.  See config.log for details.
+打开config.log
+configure:5857: checking for version 0.10 of ISL
+configure:5876: x86_64-linux-gnu-gcc -o conftest -g -O2 -I/home/tools/isl/include -I/home/tools/gmp/include -I/home/tools/mpfr/include -I/home/tools/mpc/include    -L/home/tools/isl/lib conftest.c  -lisl >&5
+configure:5876: $? = 0
+configure:5876: ./conftest
+./conftest: error while loading shared libraries: libisl.so.10: cannot open shared object file: No such file or directory
+configure:5876: $? = 127
+configure: program exited with status 127
+configure: failed program was:
+| /* confdefs.h */
+| #define PACKAGE_NAME ""
+| #define PACKAGE_TARNAME ""
+| #define PACKAGE_VERSION ""
+| #define PACKAGE_STRING ""
+| #define PACKAGE_BUGREPORT ""
+| #define PACKAGE_URL ""
+| #define LT_OBJDIR ".libs/"
+| /* end confdefs.h.  */
+| #include 
+|    #include 
+| int
+| main ()
+| {
+| if (strncmp (isl_version (), "isl-0.10", strlen ("isl-0.10")) != 0)
+|      return 1;
+|
+|   ;
+|   return 0;
+| }
+configure:5885: result: no
+configure:5905: checking for version 0.11 of ISL
+configure:5924: x86_64-linux-gnu-gcc -o conftest -g -O2 -I/home/tools/isl/include -I/home/tools/gmp/include -I/home/tools/mpfr/include -I/home/tools/mpc/include    -L/home/tools/isl/lib conftest.c  -lisl >&5
+configure:5924: $? = 0
+configure:5924: ./conftest
+好吧，是加载动态库的时候出问题了。
+ sudo vim /etc/ld.so.conf.d/ld.isl.so.conf
+将isl的lib库的绝对路径写入ld.isl.so.conf文件中 /home/tools/isl/lib
+顺便将tools目录下的其他动态库的路径都加上
+执行下面的命令重建/etc/ld.so.cache
+sudo ldconfig
+重新来一遍配置gcc-linara。
+执行make，喝杯咖啡歇会，这是个漫长的过程。
+sudo make install
+
+11 编译eglibc
+ CC=arm-linux-gnueabi-gcc ../configure  --prefix=/usr/local/arm-linux/arm-linux-gnueabi/libc/ --build=x86_64-linux-gnu --host=arm-linux-gnueabi 
+--with-header=/usr/local/arm-linux/arm-linux-gnueabi/libc/usr/include --enable-add-ons --with-binutils=/usr/local/arm-linux/bin --enable-shared libc_cv_forced_unwind=yes 
+libc_cv_c_cleanup=yes
+make 
+sudo make install
+
+好吧，现在工具链已经编译完成，下一步是使用该工具链编译uboot和kernel。
